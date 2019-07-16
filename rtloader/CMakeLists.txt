@@ -30,3 +30,6 @@ endif()
 
 ## Dev tools
 include(cmake/clang-format.cmake)
+
+## Backtrace
+find_package(Backtrace REQUIRED)

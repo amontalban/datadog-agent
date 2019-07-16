@@ -25,6 +25,7 @@ add_library(datadog-agent-rtloader SHARED
     api.cpp
     rtloader.cpp
 )
+target_link_libraries(datadog-agent-rtloader ${Backtrace_LIBRARIES})
 endif()
 
 set_target_properties(datadog-agent-rtloader PROPERTIES
