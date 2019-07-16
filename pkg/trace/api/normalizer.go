@@ -1,9 +1,15 @@
+// Unless explicitly stated otherwise all files in this repository are licensed
+// under the Apache License Version 2.0.
+// This product includes software developed at Datadog (https://www.datadoghq.com/).
+// Copyright 2016-2019 Datadog, Inc.
+
 package api
 
 import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -25,9 +31,9 @@ const (
 	// MaxTypeLen the maximum length a span type can have
 	MaxTypeLen = 100
 	// DefaultServiceName is the default name we assign a service if it's missing and we have no reasonable fallback
-	DefaultServiceName = "service"
+	DefaultServiceName = "unnamed-service"
 	// DefaultSpanName is the default name we assign a span if it's missing and we have no reasonable fallback
-	DefaultSpanName = "service.trace"
+	DefaultSpanName = "unnamed-operation"
 )
 
 var (
@@ -40,7 +46,7 @@ var (
 func normalize(ts *info.TagStats, s *pb.Span) error {
 	fallbackServiceName := DefaultServiceName
 	if ts.Lang != "" {
-		fallbackServiceName = ts.Lang
+		fallbackServiceName = fmt.Sprintf("unnamed-%s-service", ts.Lang)
 	}
 	if s.TraceID == 0 {
 		atomic.AddInt64(&ts.TracesDropped.TraceIDZero, 1)
@@ -108,20 +114,24 @@ func normalize(ts *info.TagStats, s *pb.Span) error {
 	// Start & Duration as nanoseconds timestamps
 	// if s.Start is very little, less than year 2000 probably a unit issue so discard
 	// (or it is "le bug de l'an 2000")
-	if s.Start < Year2000NanosecTS {
-		atomic.AddInt64(&ts.SpansMalformed.InvalidStartDate, 1)
-		log.Debugf("Fixing malformed trace. Start date is invalid (reason:invalid_start_date), setting span.start=time.now(): %s", s)
-		s.Start = time.Now().UnixNano()
-	}
 	if s.Duration < 0 {
 		atomic.AddInt64(&ts.SpansMalformed.InvalidDuration, 1)
 		log.Debugf("Fixing malformed trace. Duration is invalid (reason:invalid_duration), setting span.duration=0: %s", s)
 		s.Duration = 0
 	}
-	if s.Start+s.Duration < s.Start {
+	if s.Duration > math.MaxInt64-s.Start {
 		atomic.AddInt64(&ts.SpansMalformed.InvalidDuration, 1)
 		log.Debugf("Fixing malformed trace. Duration is too large and causes overflow (reason:invalid_duration), setting span.duration=0: %s", s)
 		s.Duration = 0
+	}
+	if s.Start < Year2000NanosecTS {
+		atomic.AddInt64(&ts.SpansMalformed.InvalidStartDate, 1)
+		log.Debugf("Fixing malformed trace. Start date is invalid (reason:invalid_start_date), setting span.start=time.now(): %s", s)
+		now := time.Now().UnixNano()
+		s.Start = now - s.Duration
+		if s.Start < 0 {
+			s.Start = now
+		}
 	}
 
 	s.Type = toUTF8(s.Type)

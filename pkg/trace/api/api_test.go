@@ -1,3 +1,8 @@
+// Unless explicitly stated otherwise all files in this repository are licensed
+// under the Apache License Version 2.0.
+// This product includes software developed at Datadog (https://www.datadoghq.com/).
+// Copyright 2016-2019 Datadog, Inc.
+
 package api
 
 import (
@@ -41,7 +46,7 @@ var headerFields = map[string]string{
 func newTestReceiverFromConfig(conf *config.AgentConfig) *HTTPReceiver {
 	dynConf := sampler.NewDynamicConfig("none")
 
-	rawTraceChan := make(chan pb.Trace, 5000)
+	rawTraceChan := make(chan *Trace, 5000)
 	receiver := NewHTTPReceiver(conf, dynConf, rawTraceChan)
 
 	return receiver
@@ -144,9 +149,9 @@ func TestLegacyReceiver(t *testing.T) {
 
 			// now we should be able to read the trace data
 			select {
-			case rt := <-tc.r.Out:
-				assert.Len(rt, 1)
-				span := rt[0]
+			case rt := <-tc.r.out:
+				assert.Len(rt.Spans, 1)
+				span := rt.Spans[0]
 				assert.Equal(uint64(42), span.TraceID)
 				assert.Equal(uint64(52), span.SpanID)
 				assert.Equal("fennel_is_amazing", span.Service)
@@ -207,9 +212,9 @@ func TestReceiverJSONDecoder(t *testing.T) {
 
 			// now we should be able to read the trace data
 			select {
-			case rt := <-tc.r.Out:
-				assert.Len(rt, 1)
-				span := rt[0]
+			case rt := <-tc.r.out:
+				assert.Len(rt.Spans, 1)
+				span := rt.Spans[0]
 				assert.Equal(uint64(42), span.TraceID)
 				assert.Equal(uint64(52), span.SpanID)
 				assert.Equal("fennel_is_amazing", span.Service)
@@ -274,9 +279,9 @@ func TestReceiverMsgpackDecoder(t *testing.T) {
 
 				// now we should be able to read the trace data
 				select {
-				case rt := <-tc.r.Out:
-					assert.Len(rt, 1)
-					span := rt[0]
+				case rt := <-tc.r.out:
+					assert.Len(rt.Spans, 1)
+					span := rt.Spans[0]
 					assert.Equal(uint64(42), span.TraceID)
 					assert.Equal(uint64(52), span.SpanID)
 					assert.Equal("fennel_is_amazing", span.Service)
@@ -296,9 +301,9 @@ func TestReceiverMsgpackDecoder(t *testing.T) {
 
 				// now we should be able to read the trace data
 				select {
-				case rt := <-tc.r.Out:
-					assert.Len(rt, 1)
-					span := rt[0]
+				case rt := <-tc.r.out:
+					assert.Len(rt.Spans, 1)
+					span := rt.Spans[0]
 					assert.Equal(uint64(42), span.TraceID)
 					assert.Equal(uint64(52), span.SpanID)
 					assert.Equal("fennel_is_amazing", span.Service)
@@ -375,7 +380,7 @@ func TestHandleTraces(t *testing.T) {
 	for n := 0; n < 10; n++ {
 		// consume the traces channel without doing anything
 		select {
-		case <-receiver.Out:
+		case <-receiver.out:
 		default:
 		}
 
@@ -497,7 +502,7 @@ func BenchmarkHandleTracesFromOneApp(b *testing.B) {
 		b.StopTimer()
 		// consume the traces channel without doing anything
 		select {
-		case <-receiver.Out:
+		case <-receiver.out:
 		default:
 		}
 
@@ -537,7 +542,7 @@ func BenchmarkHandleTracesFromMultipleApps(b *testing.B) {
 		b.StopTimer()
 		// consume the traces channel without doing anything
 		select {
-		case <-receiver.Out:
+		case <-receiver.out:
 		default:
 		}
 
@@ -652,7 +657,7 @@ func TestWatchdog(t *testing.T) {
 		defer r.Stop()
 		go func() {
 			for {
-				<-r.Out
+				<-r.out
 			}
 		}()
 
@@ -734,7 +739,7 @@ func TestOOMKill(t *testing.T) {
 	defer r.Stop()
 	go func() {
 		for {
-			<-r.Out
+			<-r.out
 		}
 	}()
 

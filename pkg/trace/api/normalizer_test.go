@@ -1,11 +1,18 @@
+// Unless explicitly stated otherwise all files in this repository are licensed
+// under the Apache License Version 2.0.
+// This product includes software developed at Datadog (https://www.datadoghq.com/).
+// Copyright 2016-2019 Datadog, Inc.
+
 package api
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"math/rand"
 	"strings"
 	"testing"
+	"time"
 	"unicode"
 
 	"github.com/DataDog/datadog-agent/pkg/trace/info"
@@ -70,7 +77,7 @@ func TestNormalizeEmptyServiceNoLang(t *testing.T) {
 	s := newTestSpan()
 	s.Service = ""
 	assert.NoError(t, normalize(ts, s))
-	assert.Equal(t, s.Service, DefaultServiceName)
+	assert.Equal(t, DefaultServiceName, s.Service)
 	assert.Equal(t, tsMalformed(&info.SpansMalformed{ServiceEmpty: 1}), ts)
 }
 
@@ -80,7 +87,7 @@ func TestNormalizeEmptyServiceWithLang(t *testing.T) {
 	s.Service = ""
 	ts.Lang = "java"
 	assert.NoError(t, normalize(ts, s))
-	assert.Equal(t, s.Service, ts.Lang)
+	assert.Equal(t, s.Service, fmt.Sprintf("unnamed-%s-service", ts.Lang))
 	tsExpected := tsMalformed(&info.SpansMalformed{ServiceEmpty: 1})
 	tsExpected.Lang = ts.Lang
 	assert.Equal(t, tsExpected, ts)
@@ -109,7 +116,7 @@ func TestNormalizeEmptyName(t *testing.T) {
 	s := newTestSpan()
 	s.Name = ""
 	assert.NoError(t, normalize(ts, s))
-	assert.Equal(t, s.Name, DefaultSpanName)
+	assert.Equal(t, s.Name, strings.Replace(DefaultSpanName, "-", "_", -1))
 	assert.Equal(t, tsMalformed(&info.SpansMalformed{SpanNameEmpty: 1}), ts)
 }
 
@@ -199,23 +206,38 @@ func TestNormalizeNoSpanID(t *testing.T) {
 	assert.Equal(t, tsDropped(&info.TracesDropped{SpanIDZero: 1}), ts)
 }
 
-func TestNormalizeStartPassThru(t *testing.T) {
-	ts := newTagStats()
-	s := newTestSpan()
-	before := s.Start
-	assert.NoError(t, normalize(ts, s))
-	assert.Equal(t, before, s.Start)
-	assert.Equal(t, newTagStats(), ts)
-}
+func TestNormalizeStart(t *testing.T) {
+	t.Run("pass-through", func(t *testing.T) {
+		ts := newTagStats()
+		s := newTestSpan()
+		before := s.Start
+		assert.NoError(t, normalize(ts, s))
+		assert.Equal(t, before, s.Start)
+		assert.Equal(t, newTagStats(), ts)
+	})
 
-func TestNormalizeStartTooSmall(t *testing.T) {
-	ts := newTagStats()
-	s := newTestSpan()
-	s.Start = 42
-	before := s.Start
-	assert.NoError(t, normalize(ts, s))
-	assert.Equal(t, tsMalformed(&info.SpansMalformed{InvalidStartDate: 1}), ts)
-	assert.True(t, s.Start > before, "start should have been reset to current time")
+	t.Run("too-small", func(t *testing.T) {
+		ts := newTagStats()
+		s := newTestSpan()
+		s.Start = 42
+		minStart := time.Now().UnixNano() - s.Duration
+		assert.NoError(t, normalize(ts, s))
+		assert.True(t, s.Start >= minStart)
+		assert.True(t, s.Start <= time.Now().UnixNano()-s.Duration)
+		assert.Equal(t, tsMalformed(&info.SpansMalformed{InvalidStartDate: 1}), ts)
+	})
+
+	t.Run("too-small-with-large-duration", func(t *testing.T) {
+		ts := newTagStats()
+		s := newTestSpan()
+		s.Start = 42
+		s.Duration = time.Now().UnixNano() * 2
+		minStart := time.Now().UnixNano()
+		assert.NoError(t, normalize(ts, s))
+		assert.Equal(t, tsMalformed(&info.SpansMalformed{InvalidStartDate: 1}), ts)
+		assert.True(t, s.Start >= minStart, "start should have been reset to current time")
+		assert.True(t, s.Start <= time.Now().UnixNano(), "start should have been reset to current time")
+	})
 }
 
 func TestNormalizeDurationPassThru(t *testing.T) {

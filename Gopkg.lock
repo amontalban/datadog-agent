@@ -806,7 +806,8 @@
     "pkg/cpuonline",
   ]
   pruneopts = ""
-  revision = "98ebf56442afb10e1b43145127de3c1777ed7e95"
+  revision = "dfb11c17a0746e78b1bd96b6eea766f2a4a2ce8a"
+  source = "github.com/DataDog/gobpf"
 
 [[projects]]
   digest = "1:6f49eae0c1e5dab1dafafee34b207aeb7a42303105960944828c2079b92fc88e"
@@ -1992,6 +1993,7 @@
     "github.com/containerd/typeurl",
     "github.com/coreos/etcd/client",
     "github.com/coreos/go-semver/semver",
+    "github.com/coreos/go-systemd/dbus",
     "github.com/coreos/go-systemd/sdjournal",
     "github.com/docker/docker/api/types",
     "github.com/docker/docker/api/types/container",
@@ -2009,6 +2011,7 @@
     "github.com/florianl/go-conntrack",
     "github.com/go-ini/ini",
     "github.com/go-ole/go-ole",
+    "github.com/godbus/dbus",
     "github.com/gogo/protobuf/gogoproto",
     "github.com/gogo/protobuf/jsonpb",
     "github.com/gogo/protobuf/proto",

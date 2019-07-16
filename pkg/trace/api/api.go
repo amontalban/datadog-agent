@@ -1,3 +1,8 @@
+// Unless explicitly stated otherwise all files in this repository are licensed
+// under the Apache License Version 2.0.
+// This product includes software developed at Datadog (https://www.datadoghq.com/).
+// Copyright 2016-2019 Datadog, Inc.
+
 package api
 
 import (
@@ -39,10 +44,6 @@ const (
 	maxRequestBodyLength = 10 * 1024 * 1024
 	tagTraceHandler      = "handler:traces"
 	tagServiceHandler    = "handler:services"
-
-	// headerTraceCount is the header client implementation should fill
-	// with the number of traces contained in the payload.
-	headerTraceCount = "X-Datadog-Trace-Count"
 )
 
 // Version is a dumb way to version our collector handlers
@@ -72,8 +73,8 @@ const (
 type HTTPReceiver struct {
 	Stats       *info.ReceiverStats
 	RateLimiter *rateLimiter
-	Out         chan pb.Trace
 
+	out     chan *Trace
 	conf    *config.AgentConfig
 	dynConf *sampler.DynamicConfig
 	server  *http.Server
@@ -87,17 +88,15 @@ type HTTPReceiver struct {
 }
 
 // NewHTTPReceiver returns a pointer to a new HTTPReceiver
-func NewHTTPReceiver(
-	conf *config.AgentConfig, dynConf *sampler.DynamicConfig, out chan pb.Trace) *HTTPReceiver {
+func NewHTTPReceiver(conf *config.AgentConfig, dynConf *sampler.DynamicConfig, out chan *Trace) *HTTPReceiver {
 	rateLimiterResponse := http.StatusOK
 	if config.HasFeature("429") {
 		rateLimiterResponse = http.StatusTooManyRequests
 	}
-	// use buffered channels so that handlers are not waiting on downstream processing
 	return &HTTPReceiver{
 		Stats:       info.NewReceiverStats(),
 		RateLimiter: newRateLimiter(),
-		Out:         out,
+		out:         out,
 
 		conf:    conf,
 		dynConf: dynConf,
@@ -252,7 +251,7 @@ func (r *HTTPReceiver) Stop() error {
 		return err
 	}
 	r.wg.Wait()
-	close(r.Out)
+	close(r.out)
 	return nil
 }
 
@@ -290,12 +289,39 @@ func traceCount(req *http.Request) int64 {
 	return int64(n)
 }
 
+const (
+	// headerTraceCount is the header client implementation should fill
+	// with the number of traces contained in the payload.
+	headerTraceCount = "X-Datadog-Trace-Count"
+
+	// headerLang specifies the name of the header which contains the language from
+	// which the traces originate.
+	headerLang = "Datadog-Meta-Lang"
+
+	// headerLangVersion specifies the name of the header which contains the origin
+	// language's version.
+	headerLangVersion = "Datadog-Meta-Lang-Version"
+
+	// headerLangInterpreter specifies the name of the HTTP header containing information
+	// about the language interpreter, where applicable.
+	headerLangInterpreter = "Datadog-Meta-Lang-Interpreter"
+
+	// headerLangInterpreterVendor specifies the name of the HTTP header containing information
+	// about the language interpreter vendor, where applicable.
+	headerLangInterpreterVendor = "Datadog-Meta-Lang-Interpreter-Vendor"
+
+	// headerTracerVersion specifies the name of the header which contains the version
+	// of the tracer sending the payload.
+	headerTracerVersion = "Datadog-Meta-Tracer-Version"
+)
+
 func (r *HTTPReceiver) tagStats(req *http.Request) *info.TagStats {
 	return r.Stats.GetTagStats(info.Tags{
-		Lang:          req.Header.Get("Datadog-Meta-Lang"),
-		LangVersion:   req.Header.Get("Datadog-Meta-Lang-Version"),
-		Interpreter:   req.Header.Get("Datadog-Meta-Lang-Interpreter"),
-		TracerVersion: req.Header.Get("Datadog-Meta-Tracer-Version"),
+		Lang:          req.Header.Get(headerLang),
+		LangVersion:   req.Header.Get(headerLangVersion),
+		Interpreter:   req.Header.Get(headerLangInterpreter),
+		LangVendor:    req.Header.Get(headerLangInterpreterVendor),
+		TracerVersion: req.Header.Get(headerTracerVersion),
 	})
 }
 
@@ -358,6 +384,16 @@ func (r *HTTPReceiver) handleTraces(v Version, w http.ResponseWriter, req *http.
 	}()
 }
 
+// Trace specifies information about a trace received by the API.
+type Trace struct {
+	// Source specifies information about the source of these traces, such as:
+	// language, interpreter, tracer version, etc.
+	Source *info.Tags
+
+	// Spans holds the spans of this trace.
+	Spans pb.Trace
+}
+
 func (r *HTTPReceiver) processTraces(ts *info.TagStats, traces pb.Traces) {
 	defer timing.Since("datadog.trace_agent.internal.normalize_ms", time.Now())
 	for _, trace := range traces {
@@ -372,7 +408,10 @@ func (r *HTTPReceiver) processTraces(ts *info.TagStats, traces pb.Traces) {
 			continue
 		}
 
-		r.Out <- trace
+		r.out <- &Trace{
+			Source: &ts.Tags,
+			Spans:  trace,
+		}
 	}
 }
 
@@ -404,7 +443,7 @@ func (r *HTTPReceiver) loop() {
 			r.watchdog(now)
 		case now := <-t.C:
 			metrics.Gauge("datadog.trace_agent.heartbeat", 1, nil, 1)
-			metrics.Gauge("datadog.trace_agent.receiver.out_chan_fill", float64(len(r.Out))/float64(cap(r.Out)), nil, 1)
+			metrics.Gauge("datadog.trace_agent.receiver.out_chan_fill", float64(len(r.out))/float64(cap(r.out)), nil, 1)
 
 			// We update accStats with the new stats we collected
 			accStats.Acc(r.Stats)
